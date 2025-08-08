@@ -1,0 +1,30 @@
+fastapi==0.111.0
+uvicorn[standard]==0.30.1
+pydantic==2.8.2
+python-multipart==0.0.9
+httpx==0.27.0
+requests==2.32.3
+python-dotenv==1.0.1
+loguru==0.7.2
+
+# Document parsing
+pypdf==4.2.0
+python-docx==1.1.2
+beautifulsoup4==4.12.3
+lxml==5.2.2
+
+# Embeddings & Vector DB
+# faiss-cpu optional; using sklearn fallback by default
+sentence-transformers==3.0.1
+numpy==1.26.4
+scikit-learn==1.5.1
+
+# Pinecone optional
+pinecone-client==5.0.1
+
+# OpenAI-compatible LLM
+openai==1.40.3
+
+# Testing
+pytest==8.3.1
+pytest-asyncio==0.23.7
