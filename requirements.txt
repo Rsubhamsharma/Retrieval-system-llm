@@ -12,10 +12,9 @@ pypdf==4.2.0
 python-docx==1.1.2
 beautifulsoup4==4.12.3
 lxml==5.2.2
-eml-parser==1.17.2
 
 # Embeddings & Vector DB
-faiss-cpu==1.8.0.post1
+# faiss-cpu optional; using sklearn fallback by default
 sentence-transformers==3.0.1
 numpy==1.26.4
 scikit-learn==1.5.1
@@ -25,10 +24,6 @@ pinecone-client==5.0.1
 
 # OpenAI-compatible LLM
 openai==1.40.3
-
-# DB
-SQLAlchemy==2.0.32
-psycopg2-binary==2.9.9
 
 # Testing
 pytest==8.3.1

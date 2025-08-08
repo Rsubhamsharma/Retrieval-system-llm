@@ -4,7 +4,8 @@ import httpx
 from pypdf import PdfReader
 from docx import Document as DocxDocument
 from bs4 import BeautifulSoup
-from eml_parser import EmlParser
+from email import policy
+from email.parser import BytesParser
 
 CHUNK_SIZE = 1200
 CHUNK_OVERLAP = 200

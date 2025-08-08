@@ -1,7 +1,16 @@
-from typing import List, Tuple, Dict, Any, Optional
+from typing import List, Dict, Any, Optional
 import numpy as np
 from sentence_transformers import SentenceTransformer
-import faiss
+
+try:
+    import faiss  # type: ignore
+except Exception:
+    faiss = None  # type: ignore
+
+try:
+    from sklearn.neighbors import NearestNeighbors
+except Exception:  # pragma: no cover
+    NearestNeighbors = None  # type: ignore
 
 try:
     from pinecone import Pinecone
@@ -15,6 +24,7 @@ class EmbeddingSearcher:
         self.use_pinecone = use_pinecone and Pinecone is not None and pinecone_index is not None
         self.pinecone_index_name = pinecone_index
         self.index = None
+        self.nn: Optional[NearestNeighbors] = None  # sklearn fallback
         self.embeddings = None
         self.chunks: List[str] = []
         self.pages: List[Optional[int]] = []
@@ -30,7 +40,6 @@ class EmbeddingSearcher:
         vectors = self.model.encode(chunks, convert_to_numpy=True, normalize_embeddings=True)
         self.embeddings = vectors.astype("float32")
         if self.use_pinecone:
-            # Upsert to Pinecone
             items = [
                 {
                     "id": f"chunk-{i}",
@@ -39,40 +48,60 @@ class EmbeddingSearcher:
                 }
                 for i, vec in enumerate(vectors)
             ]
-            # Chunk upserts
             for i in range(0, len(items), 100):
                 self.pinecone.upsert(vectors=items[i : i + 100])  # type: ignore
         else:
-            dim = self.embeddings.shape[1]
-            self.index = faiss.IndexFlatIP(dim)
-            self.index.add(self.embeddings)
+            if faiss is not None:
+                dim = self.embeddings.shape[1]
+                self.index = faiss.IndexFlatIP(dim)
+                self.index.add(self.embeddings)
+            else:
+                if NearestNeighbors is None:
+                    raise RuntimeError("Neither FAISS nor scikit-learn is available for similarity search.")
+                self.nn = NearestNeighbors(n_neighbors=min(10, len(self.embeddings)), metric="cosine")
+                self.nn.fit(self.embeddings)
 
     def search(self, query: str, top_k: int = 5) -> List[Dict[str, Any]]:
         q_vec = self.model.encode([query], convert_to_numpy=True, normalize_embeddings=True).astype("float32")
         if self.use_pinecone:
             results = self.pinecone.query(vector=q_vec[0].tolist(), top_k=top_k, include_metadata=True)  # type: ignore
             out: List[Dict[str, Any]] = []
-            for match in results["matches"]:
+            for match in results.get("matches", []):
                 out.append(
                     {
-                        "text": match["metadata"]["text"],
-                        "page": match["metadata"].get("page"),
-                        "score": match.get("score", 0.0),
+                        "text": match.get("metadata", {}).get("text", ""),
+                        "page": match.get("metadata", {}).get("page"),
+                        "score": float(match.get("score", 0.0)),
                     }
                 )
             return out
         else:
-            assert self.index is not None and self.embeddings is not None
-            sims, idxs = self.index.search(q_vec, top_k)
-            out = []
-            for score, idx in zip(sims[0], idxs[0]):
-                if idx == -1:
-                    continue
-                out.append(
-                    {
-                        "text": self.chunks[idx],
-                        "page": self.pages[idx],
-                        "score": float(score),
-                    }
-                )
-            return out
+            out: List[Dict[str, Any]] = []
+            if faiss is not None and self.index is not None:
+                sims, idxs = self.index.search(q_vec, top_k)
+                for score, idx in zip(sims[0], idxs[0]):
+                    if idx == -1:
+                        continue
+                    out.append(
+                        {
+                            "text": self.chunks[idx],
+                            "page": self.pages[idx],
+                            "score": float(score),
+                        }
+                    )
+                return out
+            else:
+                assert self.nn is not None and self.embeddings is not None
+                # sklearn cosine metric returns distance in [0,2]; convert to similarity ~ (1 - dist)
+                distances, indices = self.nn.kneighbors(q_vec, n_neighbors=min(top_k, len(self.chunks)))
+                for dist, idx in zip(distances[0], indices[0]):
+                    sim = 1.0 - float(dist)
+                    out.append(
+                        {
+                            "text": self.chunks[idx],
+                            "page": self.pages[idx],
+                            "score": sim,
+                        }
+                    )
+                out.sort(key=lambda x: x["score"], reverse=True)
+                return out
